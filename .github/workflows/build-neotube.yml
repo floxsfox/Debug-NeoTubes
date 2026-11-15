@@ -24,7 +24,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ZIP diekstrak hanya di runner (tidak di-commit), jadi cukup upload ZIP + yml ini.
       - name: Ekstrak ZIP proyek
         run: |
           set -e
@@ -52,11 +51,30 @@ jobs:
 
       - name: Build APK debug
         working-directory: ${{ env.PROJECT_DIR }}
-        run: gradle assembleDebug --no-daemon --stacktrace -PnewpipeVersion="${{ github.event.inputs.extractor_version || 'v0.27.1' }}"
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --console=plain -PnewpipeVersion="${{ github.event.inputs.extractor_version || 'v0.27.1' }}" 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      # Kalau gagal: tampilkan HANYA error-nya, di baris paling bawah log + di tab Ringkasan.
+      - name: Tampilkan error build
+        if: failure()
+        run: |
+          LOG="$RUNNER_TEMP/build.log"
+          [ -f "$LOG" ] || exit 0
+          clean() { sed -E 's#file://[^ ]*/app/neotube/#@#; s#file://[^ ]*/app/src/main/##'; }
+          echo "=============== ERROR BUILD ==============="
+          grep -E '^e: ' "$LOG" | clean | head -n 40 || true
+          grep -E -A6 'What went wrong' "$LOG" | head -n 20 || true
+          {
+            echo '### Error build'
+            echo '```'
+            grep -E '^e: ' "$LOG" | clean | head -n 40 || true
+            grep -E -A6 'What went wrong' "$LOG" | head -n 20 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
           name: NeoTube-Debug-APK
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          
